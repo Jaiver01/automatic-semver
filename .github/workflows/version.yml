@@ -4,7 +4,10 @@ on:
   pull_request:
     types: [closed]
     branches:
-      - main
+      - master
+
+permissions:
+  contents: write
 
 jobs:
   update-version:
