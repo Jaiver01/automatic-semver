@@ -1,0 +1,80 @@
+name: Versioning on PR Merge to Master
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - master
+
+jobs:
+  update-version:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Git config
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+      - name: Read current version
+        id: get-version
+        run: |
+          source version.env
+          echo "CURRENT_VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Determine bump type
+        id: bump
+        run: |
+          branch="${{ github.event.pull_request.head.ref }}"
+
+          if [[ "$branch" == major/* ]]; then
+            echo "BUMP=major" >> $GITHUB_OUTPUT
+          elif [[ "$branch" == feature/* ]]; then
+            echo "BUMP=minor" >> $GITHUB_OUTPUT
+          elif [[ "$branch" == patch/* || "$branch" == hotfix/* ]]; then
+            echo "BUMP=patch" >> $GITHUB_OUTPUT
+          else
+            echo "Unsupported branch prefix"
+            exit 1
+          fi
+
+      - name: Bump version
+        id: bump-version
+        run: |
+          OLD_VERSION="${{ steps.get-version.outputs.CURRENT_VERSION }}"
+          BUMP="${{ steps.bump.outputs.BUMP }}"
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$OLD_VERSION"
+
+          case "$BUMP" in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
+
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update version.env
+        run: |
+          NEW_VERSION="${{ steps.bump-version.outputs.NEW_VERSION }}"
+          sed -i "s/^VERSION=.*/VERSION=$NEW_VERSION/" version.env
+
+      - name: Commit and push new version
+        run: |
+          git add version.env
+          git commit -m "chore: bump version to ${{ steps.bump-version.outputs.NEW_VERSION }}"
+          git push
